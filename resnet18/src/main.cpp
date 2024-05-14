@@ -27,7 +27,7 @@ static int RGB2BGR(unsigned char* buf, int width, int height) {
 	return 0;
 }
 
-int resnet_demo(hcnn2::NetEZ82x &net, std::string path)
+int resnet_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string path)
 {
 	int w, h, n;
 	unsigned char* imgbuf = stbi_load(path.c_str(), &w, &h, &n, 0);
@@ -36,7 +36,7 @@ int resnet_demo(hcnn2::NetEZ82x &net, std::string path)
 		RGB2BGR((unsigned char*)imgbuf, w, h);
 
 	std::vector<int> shape = {1, h, w, 3};
-	hcnn2::Blob blob_in("data", hcnn2::BlobType::RGB24, shape, 
+	hcnn2::Blob blob_in("input.1", hcnn2::BlobType::RGB24, shape, 
 					{(void*)imgbuf, (void*)((unsigned char*)imgbuf+w*h)});
 
 	if (net.input(blob_in) != 0) {
@@ -45,7 +45,9 @@ int resnet_demo(hcnn2::NetEZ82x &net, std::string path)
 		return -1;
 	}
 
+	timer.tik();
 	std::vector<hcnn2::Blob> blobs_out = net.forward();
+	timer.tok();
 
 	auto blob_out = blobs_out[0];
 	hcnn2::Mat<float> output((float*)blob_out.data[0], {1,1,1,1000});
@@ -76,6 +78,9 @@ int main(int argc, char** argv)
 	int correct = 0;
 	float acc_top1 = 0;
 
+	hcnn2::Timer timer("forword");
+	timer.clear();
+
 	while (std::getline(ifs, line))
     {
     	std::istringstream iss(line);
@@ -83,7 +88,7 @@ int main(int argc, char** argv)
 		iss >> fname;
 		int cls;
 		iss >> cls;
-		int pred = resnet_demo(net, "./images/"+fname);
+		int pred = resnet_demo(net, timer, "./images/"+fname);
 		spdlog::info("image {}, label {}, pred {}", fname, cls, pred);	
 		if (pred == cls) {
 			correct++;
@@ -93,6 +98,7 @@ int main(int argc, char** argv)
 
 	acc_top1 = (float)correct / total;
 	spdlog::info("total {}, correct {}, acc_top1 {}", total, correct, acc_top1);
+	timer.stat();
 
 	net.unload();
 	return 0;
