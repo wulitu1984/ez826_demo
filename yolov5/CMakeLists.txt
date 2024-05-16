@@ -27,3 +27,11 @@ add_executable(demo-yolov5 ${SRC})
 target_link_libraries(demo-yolov5
 	${PLATFORM_RT_LIB}
 )
+
+set(SRC_P
+	${PROJECT_SOURCE_DIR}/src/main_power.cpp)
+
+add_executable(demo-yolov5-power ${SRC_P})
+target_link_libraries(demo-yolov5-power
+	${PLATFORM_RT_LIB}
+)

@@ -4,6 +4,7 @@
 #include <thread>
 #include <string>
 #include <unistd.h>
+#include <cstdlib>
 
 #include "spdlog/spdlog.h"
 #include "hcnn2/hcnn2.hpp"
@@ -36,6 +37,9 @@ int yolov5_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string image_pat
 	spdlog::info("image size: {}x{}x{}", w, h, n);
 	if (n != 3) {
 		spdlog::error("image size error!");
+		std::ofstream result_file(result_path);
+		result_file << "#" << std::endl;
+		result_file.close();
 		free(imgbuf);
 		return -1;
 	}
@@ -54,7 +58,6 @@ int yolov5_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string image_pat
 
 	timer.tik();
 	std::vector<hcnn2::Blob> blobs_out = net.forward();
-	timer.tok();
 
 	//post process
 	YoloPost yolo_post(80);
@@ -66,10 +69,11 @@ int yolov5_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string image_pat
 	hcnn2::Mat<float> conv_198_mat(conv_198_f32, {80,80,255,1}, false);
 	hcnn2::Mat<float> conv_205_mat(conv_205_f32, {40,40,255,1}, false);
 	hcnn2::Mat<float> conv_212_mat(conv_212_f32, {20,20,255,1}, false);
-	yolo_post.forward(conv_212_mat, mask[2], 32, 0.5);
-	yolo_post.forward(conv_205_mat, mask[1], 16, 0.5);
-	yolo_post.forward(conv_198_mat, mask[0],  8, 0.5);
-	std::vector<Bbox> bboxes = yolo_post.getBBoxes(0.45);
+	yolo_post.forward(conv_212_mat, mask[2], 32, 0.1);
+	yolo_post.forward(conv_205_mat, mask[1], 16, 0.1);
+	yolo_post.forward(conv_198_mat, mask[0],  8, 0.1);
+	std::vector<Bbox> bboxes = yolo_post.getBBoxes(0.6);
+	timer.tok();
 	std::cout << "bbox detected:" << bboxes.size() << std::endl;
 	for(auto bbox:bboxes) {
 		std::cout << "[" << bbox.x_left*w << "," << bbox.y_top*h << "," 
@@ -83,6 +87,9 @@ int yolov5_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string image_pat
 		result_file << bbox.class_id << " " << bbox.max_conf << " " << bbox.x_left*w << " " << bbox.y_top*h 
 				<< " " << bbox.x_right*w << " " << bbox.y_bottom*h << std::endl;
 	}
+	//add comment line to make sure the result file is the same as the ground truth file
+	result_file << "#" << std::endl;
+	result_file.close();
 
 	free(imgbuf);
 	return 0;
@@ -91,6 +98,8 @@ int yolov5_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string image_pat
 
 int main(int argc, char** argv)
 {
+	int cnt = std::atoi(argv[1]);
+
 	hcnn2::NetEZ82x net;
 	net.load("./models/yolov5s.ezb", "./models/yolov5s.bin");
 
@@ -102,20 +111,45 @@ int main(int argc, char** argv)
 	timer.clear();
 
 	auto labels = get_files_in_path("./labels");
+	system("mkdir -p labels_1");
+	system("mkdir -p result_1");
+	system("rm -rf labels_1/*");
+	system("rm -rf result_1/*");
 	for (auto l:labels) {
 		std::string label = l.substr(9, l.size()-13);
-		std::cout << label << std::endl;
 		std::string image_path = "./images/" + label + ".jpg";
-		std::string result_path = "./result/" + label + ".txt";
-		yolov5_demo(net, timer, image_path, result_path);
+		std::string cmd = "cp labels/" + label + ".txt" + " labels_1/" + label + ".txt";
+		system(cmd.c_str());
+		std::string result_path = "./result_1/" + label + ".txt";
+		spdlog::info("cnt {}, image_path {}, result_path {}", cnt, image_path, result_path);
+		auto ret = yolov5_demo(net, timer, image_path, result_path);
+		if (ret == -1) {
+			break;
+		}
+		cnt--;
+		if (cnt == 0) {
+			break;
+		}
 	}
 
-    std::string ground_truths_path = "./labels";
-    std::string detection_results_path = "./result";
-    std::vector<std::pair<int, float>> map = calc_mAP(ground_truths_path, detection_results_path);
-	for (auto m:map) {
-		std::cout << "class_id:" << m.first << " mAP:" << m.second << std::endl;
+    std::string ground_truths_path = "./labels_1";
+    std::string detection_results_path = "./result_1";
+	float map_all = 0;
+	int cnt_all = 0;
+	for (int i = 50; i < 100; i+=5) {
+		float iou_threshold = i / 100.0;
+		std::vector<std::pair<int, float>> mAPs = calc_mAP(ground_truths_path, detection_results_path, iou_threshold);
+		float map = 0;
+		for (auto m:mAPs) {
+			//std::cout << "class_id:" << m.first << " mAP:" << m.second << std::endl;
+			map += m.second;
+		}
+		spdlog::info("AP{}:{}", i, map/mAPs.size());
+		cnt_all++;
+		map_all += map/mAPs.size();
 	}
+	std::cout << "mAP50:95: " << map_all/cnt_all << std::endl;
+
 
 	timer.stat();
 	net.unload();

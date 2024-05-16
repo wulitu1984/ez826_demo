@@ -18,8 +18,15 @@ link_directories(${PROJECT_SOURCE_DIR}/../3rd-party/hcnn2/)
 set(PLATFORM_RT_LIB ax log openvx openvx-nn nn soft-nn hcnn2)
 
 set(SRC ${PROJECT_SOURCE_DIR}/src/main.cpp)
+set(SRC_P ${PROJECT_SOURCE_DIR}/src/main_power.cpp)
 
 add_executable(demo-resnet ${SRC})
 target_link_libraries(demo-resnet
 	${PLATFORM_RT_LIB}
 )
+
+add_executable(demo-resnet-power ${SRC_P})
+target_link_libraries(demo-resnet-power
+	${PLATFORM_RT_LIB}
+)
+

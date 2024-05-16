@@ -1,3 +1,8 @@
 gcc-linaro-7.5.0-2019.12-x86_64_arm-linux-gnueabihf/
 resnet18/build
 yolov5/build
+resnet18/images
+resnet18/labels
+yolov5/images
+yolov5/labels
+yolov5/result

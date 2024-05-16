@@ -60,6 +60,7 @@ std::pair<std::vector<groud_truth>, groud_truth_info> get_ground_truths(const st
     std::vector<groud_truth> ground_truths;
     groud_truth_info info;
     std::vector<std::string> files = get_files_in_path(ground_truths_path);
+    //std::cout << "files in " << ground_truths_path << " " << files.size() << std::endl;
     int file_id = 0;
     for (const auto& file : files)
     {
@@ -71,8 +72,9 @@ std::pair<std::vector<groud_truth>, groud_truth_info> get_ground_truths(const st
         {
             std::istringstream iss(line);
             //class_name, left, top, right, bottom
-            int cls;
-            iss >> cls;
+            float cls_f;
+            iss >> cls_f;
+            int cls = (int)cls_f;
             float left, top, right, bottom;
             iss >> left >> top >> right >> bottom;
             bbox b = { cls, 1, {left, top, right, bottom}, false };
@@ -105,6 +107,7 @@ std::pair<std::vector<detection_result>, detection_result_info> get_detection_re
     std::vector<detection_result> detection_results;
     detection_result_info info;
     std::vector<std::string> files = get_files_in_path(detection_results_path);
+    //std::cout << "files in " << detection_results_path << " " << files.size() << std::endl;
     int file_id = 0;
     for (const auto& file : files)
     {
@@ -115,9 +118,13 @@ std::pair<std::vector<detection_result>, detection_result_info> get_detection_re
         while (std::getline(ifs, line))
         {
             std::istringstream iss(line);
+            //if line start with #, skip
+            if (line[0] == '#')
+                continue;
             //class_name, score, left, top, right, bottom
-            int cls;
-            iss >> cls;
+            float cls_f;
+            iss >> cls_f;
+            int cls = (int)cls_f;
             float score;
             iss >> score;
             float left, top, right, bottom;
@@ -164,7 +171,6 @@ float voc_ap(std::vector<float> rec, std::vector<float> prec)
 
 }
 
-#define MINOVERLAP 0.5
 float iou(bbox a, bbox b)
 {
     std::vector<float> bi = {
@@ -184,7 +190,7 @@ float iou(bbox a, bbox b)
 }
 
 std::vector<std::pair<int, float>> calc_mAP_(std::vector<groud_truth>& gts, groud_truth_info gt_info,
-    std::vector<detection_result>& dts, detection_result_info dt_info)
+    std::vector<detection_result>& dts, detection_result_info dt_info, float iou_threshold)
 {
     std::vector<int> gt_classes;
     for (const auto& e : gt_info.gt_counter_per_class)
@@ -221,7 +227,7 @@ std::vector<std::pair<int, float>> calc_mAP_(std::vector<groud_truth>& gts, grou
                         kmax = k;
                     }
                 }
-                if (ovmax >= MINOVERLAP) {
+                if (ovmax >= iou_threshold) {
                     if (!gt.bboxes[kmax].used) {
                         tp[pos] = 1;
                         tp_sum += 1;
@@ -283,19 +289,19 @@ std::vector<std::pair<int, float>> calc_mAP_(std::vector<groud_truth>& gts, grou
 }
 
 std::vector<std::pair<int, float>> calc_mAP(const std::string ground_truths_path, 
-    const std::string detection_results_path)
+    const std::string detection_results_path, float iou_threshold)
 {
     auto gts = get_ground_truths(ground_truths_path);
-    std::cout << "gt_info in " << gts.first.size() << " files" << std::endl;
-    for (const auto& e : gts.second.gt_counter_per_class)
-        std::cout << "    " << e.first << " " << e.second << std::endl;
+    //std::cout << "gt_info in " << gts.first.size() << " files" << std::endl;
+    //for (const auto& e : gts.second.gt_counter_per_class)
+        //std::cout << "    " << e.first << " " << e.second << std::endl;
     
 
     auto dts = get_detection_results(detection_results_path);
-    std::cout << "dt_info in " << dts.first.size() << " files" << std::endl;
-    for (const auto& e : dts.second.dt_counter_per_class)
-        std::cout << "    " << e.first << " " << e.second << std::endl;
+    //std::cout << "dt_info in " << dts.first.size() << " files" << std::endl;
+    //for (const auto& e : dts.second.dt_counter_per_class)
+        //std::cout << "    " << e.first << " " << e.second << std::endl;
 
-    auto mAP = calc_mAP_(gts.first, gts.second, dts.first, dts.second);
+    auto mAP = calc_mAP_(gts.first, gts.second, dts.first, dts.second, iou_threshold);
     return mAP;
 }
