@@ -19,6 +19,12 @@
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include "stb/stb_image_resize.h"
 
+#define USE_CV2
+
+#ifdef USE_CV2
+#include "opencv2/opencv.hpp"
+#endif
+
 static int RGB2BGR(unsigned char* buf, int width, int height) {
 	unsigned char tmp;
 	for (int i = 0; i < width * height * 3; i += 3)
@@ -33,18 +39,28 @@ static int RGB2BGR(unsigned char* buf, int width, int height) {
 int yolov5_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string image_path, std::string result_path)
 {
 	int w, h, n;
+	#ifdef USE_CV2
+	auto im = cv::imread(image_path);
+	w = im.cols;
+	h = im.rows;
+	n = 3;
+	unsigned char* imgbuf = im.data;
+	#else
 	unsigned char* imgbuf = stbi_load(image_path.c_str(), &w, &h, &n, 0);
-	spdlog::info("image size: {}x{}x{}", w, h, n);
+	RGB2BGR((unsigned char*)imgbuf, w, h);
+	#endif
+
 	if (n != 3) {
 		spdlog::error("image size error!");
 		std::ofstream result_file(result_path);
 		result_file << "#" << std::endl;
 		result_file.close();
+		#ifndef USE_CV2
 		free(imgbuf);
+		#endif
 		return -1;
 	}
 
-	RGB2BGR((unsigned char*)imgbuf, w, h);
 
 	std::vector<int> shape = {1, h, w, 3};
 	hcnn2::Blob blob_in("input.1", hcnn2::BlobType::RGB24, shape, 
@@ -52,12 +68,15 @@ int yolov5_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string image_pat
 
 	if (net.input(blob_in) != 0) {
 		spdlog::error("set input error!");
+		#ifndef USE_CV2
 		free(imgbuf);
+		#endif
 		return -1;
 	}
 
 	timer.tik();
 	std::vector<hcnn2::Blob> blobs_out = net.forward();
+	timer.tok();
 
 	//post process
 	YoloPost yolo_post(80);
@@ -65,6 +84,9 @@ int yolov5_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string image_pat
 	float* conv_198_f32 = (float*)(blobs_out[0].data[0]);
 	float* conv_205_f32 = (float*)(blobs_out[1].data[0]);
 	float* conv_212_f32 = (float*)(blobs_out[2].data[0]);
+	//spdlog::info("{}-{}-{}-{}", blobs_out[0].shape[0], blobs_out[0].shape[1], blobs_out[0].shape[2], blobs_out[0].shape[3]);
+	//spdlog::info("{}-{}-{}-{}", blobs_out[1].shape[0], blobs_out[1].shape[1], blobs_out[1].shape[2], blobs_out[1].shape[3]);
+	//spdlog::info("{}-{}-{}-{}", blobs_out[2].shape[0], blobs_out[2].shape[1], blobs_out[2].shape[2], blobs_out[2].shape[3]);
 
 	hcnn2::Mat<float> conv_198_mat(conv_198_f32, {80,80,255,1}, false);
 	hcnn2::Mat<float> conv_205_mat(conv_205_f32, {40,40,255,1}, false);
@@ -73,14 +95,13 @@ int yolov5_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string image_pat
 	yolo_post.forward(conv_205_mat, mask[1], 16, 0.1);
 	yolo_post.forward(conv_198_mat, mask[0],  8, 0.1);
 	std::vector<Bbox> bboxes = yolo_post.getBBoxes(0.6);
-	timer.tok();
-	std::cout << "bbox detected:" << bboxes.size() << std::endl;
-	for(auto bbox:bboxes) {
-		std::cout << "[" << bbox.x_left*w << "," << bbox.y_top*h << "," 
-				<< bbox.x_right*w << "," << bbox.y_bottom*h << "]";
-		std::cout << " " << bbox.max_conf;
-		std::cout << " " << bbox.class_id << std::endl;
-	}
+	//std::cout << "bbox detected:" << bboxes.size() << std::endl;
+	//for(auto bbox:bboxes) {
+		//std::cout << "[" << bbox.x_left*w << "," << bbox.y_top*h << "," 
+				//<< bbox.x_right*w << "," << bbox.y_bottom*h << "]";
+		//std::cout << " " << bbox.max_conf;
+		//std::cout << " " << bbox.class_id << std::endl;
+	//}
 	//write result
 	std::ofstream result_file(result_path);
 	for(auto bbox:bboxes) {
@@ -91,8 +112,10 @@ int yolov5_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string image_pat
 	result_file << "#" << std::endl;
 	result_file.close();
 
+	#ifndef USE_CV2
 	free(imgbuf);
-	return 0;
+	#endif
+	return bboxes.size();
 }
 
 
@@ -121,11 +144,11 @@ int main(int argc, char** argv)
 		std::string cmd = "cp labels/" + label + ".txt" + " labels_1/" + label + ".txt";
 		system(cmd.c_str());
 		std::string result_path = "./result_1/" + label + ".txt";
-		spdlog::info("cnt {}, image_path {}, result_path {}", cnt, image_path, result_path);
 		auto ret = yolov5_demo(net, timer, image_path, result_path);
 		if (ret == -1) {
 			break;
 		}
+		spdlog::info("cnt {}, image_path {}, result_path {}, bboxes detected {}", cnt, image_path, result_path, ret);
 		cnt--;
 		if (cnt == 0) {
 			break;
@@ -136,19 +159,24 @@ int main(int argc, char** argv)
     std::string detection_results_path = "./result_1";
 	float map_all = 0;
 	int cnt_all = 0;
+	std::cout << "================ calc mAP ================" << std::endl;
 	for (int i = 50; i < 100; i+=5) {
 		float iou_threshold = i / 100.0;
 		std::vector<std::pair<int, float>> mAPs = calc_mAP(ground_truths_path, detection_results_path, iou_threshold);
 		float map = 0;
+		//int j = 0;
 		for (auto m:mAPs) {
-			//std::cout << "class_id:" << m.first << " mAP:" << m.second << std::endl;
+			//std::cout << "class:" << m.first << " mAP:" << m.second << " ";
 			map += m.second;
+			//j++;
+			//if ((j % 8) == 0) std::cout << std::endl;
 		}
 		spdlog::info("AP{}:{}", i, map/mAPs.size());
 		cnt_all++;
 		map_all += map/mAPs.size();
+		break;
 	}
-	std::cout << "mAP50:95: " << map_all/cnt_all << std::endl;
+	//std::cout << "mAP50:95: " << map_all/cnt_all << std::endl;
 
 
 	timer.stat();

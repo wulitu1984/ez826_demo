@@ -14,8 +14,27 @@ add_compile_options(-Wall -march=armv7-a -marm -mfpu=neon)
 add_compile_options(-Wno-psabi)
 
 include_directories(${PROJECT_SOURCE_DIR}/../3rd-party/)
-link_directories(${PROJECT_SOURCE_DIR}/../3rd-party/hcnn2/)
+link_directories(${PROJECT_SOURCE_DIR}/../3rd-party/opencv2/lib)
+
+if( PLATFORM STREQUAL "82x")
+link_directories(${PROJECT_SOURCE_DIR}/../3rd-party/hcnn2/lib82x)
 set(PLATFORM_RT_LIB ax log openvx openvx-nn nn soft-nn hcnn2)
+elseif( PLATFORM STREQUAL "51x")
+link_directories(${PROJECT_SOURCE_DIR}/../3rd-party/hcnn2/lib51x)
+set(PLATFORM_RT_LIB lombo_malloc log openvx openvx-nn nn soft-nn hcnn2)
+endif()
+
+set(OpenCV_LIBS opencv_core 
+	opencv_highgui 
+	opencv_imgproc
+	opencv_imgcodecs
+	opencv_videoio
+	opencv_video
+	opencv_calib3d
+	opencv_features2d
+	opencv_flann
+	opencv_ml
+	)
 
 set(SRC ${PROJECT_SOURCE_DIR}/src/main.cpp)
 set(SRC_P ${PROJECT_SOURCE_DIR}/src/main_power.cpp)
@@ -23,6 +42,7 @@ set(SRC_P ${PROJECT_SOURCE_DIR}/src/main_power.cpp)
 add_executable(demo-resnet ${SRC})
 target_link_libraries(demo-resnet
 	${PLATFORM_RT_LIB}
+	${OpenCV_LIBS}
 )
 
 add_executable(demo-resnet-power ${SRC_P})

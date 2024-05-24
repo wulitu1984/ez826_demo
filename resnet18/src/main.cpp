@@ -16,6 +16,12 @@
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include "stb/stb_image_resize.h"
 
+#define USE_CV2
+
+#ifdef USE_CV2
+#include "opencv2/opencv.hpp"
+#endif
+
 static int RGB2BGR(unsigned char* buf, int width, int height) {
 	unsigned char tmp;
 	for (int i = 0; i < width * height * 3; i += 3)
@@ -30,10 +36,17 @@ static int RGB2BGR(unsigned char* buf, int width, int height) {
 int resnet_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string path)
 {
 	int w, h, n;
+	#ifdef USE_CV2
+	auto im = cv::imread(path);
+	w = im.cols;
+	h = im.rows;
+	n = 3;
+	unsigned char* imgbuf = im.data;
+	#else
 	unsigned char* imgbuf = stbi_load(path.c_str(), &w, &h, &n, 0);
+	RGB2BGR((unsigned char*)imgbuf, w, h);
+	#endif
 	// spdlog::info("image {}, w {}, h {}, n {}", path, w, h, n);	
-	if (n == 3)
-		RGB2BGR((unsigned char*)imgbuf, w, h);
 
 	std::vector<int> shape = {1, h, w, 3};
 	hcnn2::Blob blob_in("input.1", hcnn2::BlobType::RGB24, shape, 
@@ -41,7 +54,9 @@ int resnet_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string path)
 
 	if (net.input(blob_in) != 0) {
 		spdlog::error("set input error!");
+		#ifndef USE_CV2
 		free(imgbuf);
+		#endif
 		return -1;
 	}
 
@@ -54,14 +69,24 @@ int resnet_demo(hcnn2::NetEZ82x &net, hcnn2::Timer &timer, std::string path)
 	// output.tofile("output.bin");
 	int max_id = -1;
 	float max = 0;
+	int max_cnt = 0;
 	for(int i=0;i<1000;++i) {
+		if (output(0,0,0,i) == max) {
+			max_cnt += 1;
+		}
 		if (output(0,0,0,i) > max) {
 			max_id = i;
 			max = output(0,0,0,i);
+			max_cnt = 0;
 		}
 	}
 
+	if (max_cnt != 0)
+		spdlog::warn("multi hit {}", max_cnt);
+
+	#ifndef USE_CV2
 	free(imgbuf);
+	#endif
 	return max_id;
 }
 
@@ -89,13 +114,14 @@ int main(int argc, char** argv)
 		int cls;
 		iss >> cls;
 		int pred = resnet_demo(net, timer, "./images/"+fname);
-		spdlog::info("image {}, label {}, pred {}", fname, cls, pred);	
+		spdlog::info("cnt {}, image {}, label {}, pred {}", total, fname, cls, pred);	
 		if (pred == cls) {
 			correct++;
 		}
 		total++;
 	}
 
+	std::cout << "================ calc top1 acc ================" << std::endl;
 	acc_top1 = (float)correct / total;
 	spdlog::info("total {}, correct {}, acc_top1 {}", total, correct, acc_top1);
 	timer.stat();

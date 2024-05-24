@@ -6,3 +6,4 @@ resnet18/labels
 yolov5/images
 yolov5/labels
 yolov5/result
+yolov5/result_img
